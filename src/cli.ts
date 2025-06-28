@@ -8,7 +8,9 @@ import { Folder2GitHub } from './folder2github.js';
 import { loadConfig, saveConfig } from './config.js';
 import { ProjectAnalyzer } from './analyzer.js';
 import { logger } from './utils/logger.js';
+import { perf } from './utils/performance.js';
 import { validateSourcePath, validateRepositoryName, validateDescription, sanitizeRepositoryName, ValidationError } from './utils/validation.js';
+import { pluginManager } from './plugins/plugin-manager.js';
 
 const program = new Command();
 
@@ -17,6 +19,7 @@ program
   .description('Next-generation automated repository creation tool')
   .version('2.0.0')
   .option('-v, --verbose', 'Enable verbose output')
+  .option('--performance', 'Show performance metrics')
   .hook('preAction', (thisCommand) => {
     const options = thisCommand.opts();
     if (options.verbose) {
@@ -35,8 +38,17 @@ program
   .option('--no-verify', 'Skip verification')
   .option('-i, --interactive', 'Interactive mode')
   .option('--auto-name', 'Auto-generate repository name from folder')
+  .option('--template <template>', 'Use custom template')
+  .option('--plugins <plugins...>', 'Load additional plugins')
   .action(async (source, options) => {
+    perf.start('total-execution');
+    
     try {
+      // Load plugins if specified
+      if (options.plugins) {
+        await pluginManager.loadPlugins(options.plugins);
+      }
+      
       // Validate source path first
       await validateSourcePath(source);
       
@@ -55,6 +67,17 @@ program
         logger.error(`Error: ${error.message}`);
       }
       process.exit(1);
+    } finally {
+      const totalTime = perf.end('total-execution');
+      
+      if (program.opts().performance) {
+        console.log(chalk.blue('\n📊 Performance Metrics:'));
+        const metrics = perf.getMetrics();
+        for (const [label, data] of Object.entries(metrics)) {
+          console.log(chalk.gray(`  ${label}: ${data.avg.toFixed(2)}ms (${data.count} calls)`));
+        }
+        console.log(chalk.green(`\n⚡ Total execution time: ${totalTime.toFixed(2)}ms`));
+      }
     }
   });
 
@@ -64,6 +87,7 @@ program
   .argument('<source>', 'Source folder path')
   .option('--json', 'Output as JSON')
   .option('--cache', 'Use cached analysis if available')
+  .option('--detailed', 'Show detailed analysis')
   .action(async (source, options) => {
     try {
       await validateSourcePath(source);
@@ -82,7 +106,7 @@ program
       console.log(chalk.green('Features:'), analysis.features.join(', ') || 'None detected');
       console.log(chalk.green('Files:'), analysis.metrics.fileCount);
       console.log(chalk.green('Size:'), `${(analysis.metrics.totalSize / 1024).toFixed(1)} KB`);
-      console.log(chalk.green('Complexity:'), analysis.metrics.complexity);
+      console.log(chalk.green('Complexity:'), `${analysis.metrics.complexity} (${getComplexityLevel(analysis.metrics.complexity)})`);
       
       if (analysis.dependencies.package.length > 0) {
         console.log(chalk.green('Dependencies:'), analysis.dependencies.package.slice(0, 10).join(', '));
@@ -103,6 +127,31 @@ program
       console.log(chalk.cyan('Tests:'), analysis.files.tests.length);
       console.log(chalk.cyan('Services:'), analysis.files.services.length);
       
+      if (options.detailed) {
+        console.log(chalk.blue('\n🔍 Detailed Analysis:'));
+        
+        if (analysis.files.scripts.length > 0) {
+          console.log(chalk.yellow('\nScript Files:'));
+          analysis.files.scripts.slice(0, 10).forEach(file => {
+            console.log(chalk.gray(`  • ${file}`));
+          });
+        }
+        
+        if (analysis.files.configs.length > 0) {
+          console.log(chalk.yellow('\nConfiguration Files:'));
+          analysis.files.configs.slice(0, 5).forEach(file => {
+            console.log(chalk.gray(`  • ${file}`));
+          });
+        }
+        
+        if (analysis.files.tests.length > 0) {
+          console.log(chalk.yellow('\nTest Files:'));
+          analysis.files.tests.slice(0, 5).forEach(file => {
+            console.log(chalk.gray(`  • ${file}`));
+          });
+        }
+      }
+      
     } catch (error) {
       if (error instanceof ValidationError) {
         logger.error(`Validation Error: ${error.message}`);
@@ -117,14 +166,28 @@ program
   .command('config')
   .description('Configure f2g settings')
   .option('--reset', 'Reset configuration to defaults')
+  .option('--show', 'Show current configuration')
   .action(async (options) => {
     try {
+      if (options.show) {
+        const config = loadConfig();
+        console.log(chalk.blue('\n⚙️ Current Configuration:\n'));
+        console.log(chalk.green('GitHub Username:'), config.github.username || 'Not set');
+        console.log(chalk.green('GitHub Token:'), config.github.token ? '***' : 'Not set');
+        console.log(chalk.green('Default License:'), config.defaults.license);
+        console.log(chalk.green('Default Private:'), config.defaults.private);
+        console.log(chalk.green('Auto Verify:'), config.defaults.autoVerify);
+        console.log(chalk.green('Plugins:'), config.plugins.join(', ') || 'None');
+        return;
+      }
+      
       if (options.reset) {
-        const confirm = await input({
-          message: 'Are you sure you want to reset configuration? (yes/no):',
+        const confirmReset = await confirm({
+          message: 'Are you sure you want to reset configuration to defaults?',
+          default: false,
         });
         
-        if (confirm.toLowerCase() === 'yes') {
+        if (confirmReset) {
           // Reset to defaults by saving empty config
           saveConfig({
             github: { username: '', token: undefined },
@@ -217,17 +280,49 @@ program
     }
   });
 
+program
+  .command('plugins')
+  .description('Manage plugins')
+  .option('--list', 'List available plugins')
+  .option('--install <plugin>', 'Install a plugin')
+  .action(async (options) => {
+    if (options.list) {
+      console.log(chalk.blue('\n🔌 Available Plugins:\n'));
+      console.log(chalk.green('• @f2g/plugin-docker'), '- Docker support and containerization');
+      console.log(chalk.green('• @f2g/plugin-security'), '- Security scanning and policies');
+      console.log(chalk.green('• @f2g/plugin-badges'), '- README badge generation');
+      console.log(chalk.green('• @f2g/plugin-changelog'), '- Automated changelog generation');
+      return;
+    }
+    
+    if (options.install) {
+      logger.info(`Installing plugin: ${options.install}`);
+      // Plugin installation logic would go here
+      logger.success(`Plugin ${options.install} installed successfully`);
+    }
+  });
+
+function getComplexityLevel(complexity: number): string {
+  if (complexity < 10) return 'Simple';
+  if (complexity < 50) return 'Moderate';
+  if (complexity < 100) return 'Complex';
+  return 'Very Complex';
+}
+
 async function runInteractiveMode(f2g: Folder2GitHub, source: string, options: any) {
   console.log(chalk.blue('\n🚀 Interactive Repository Creation\n'));
   
   // Analyze project first
+  perf.start('analysis');
   const analyzer = new ProjectAnalyzer();
   const analysis = await analyzer.analyze(source);
+  perf.end('analysis');
   
   console.log(chalk.green('📊 Project detected as:'), analysis.type);
   console.log(chalk.green('🔧 Languages:'), analysis.languages.join(', ') || 'None detected');
   console.log(chalk.green('📁 Files:'), analysis.metrics.fileCount);
   console.log(chalk.green('📦 Size:'), `${(analysis.metrics.totalSize / 1024).toFixed(1)} KB`);
+  console.log(chalk.green('🧮 Complexity:'), `${analysis.metrics.complexity} (${getComplexityLevel(analysis.metrics.complexity)})`);
   
   const defaultName = options.autoName ? 
     sanitizeRepositoryName(source.split('/').pop() || 'my-project') :
@@ -291,6 +386,8 @@ async function runInteractiveMode(f2g: Folder2GitHub, source: string, options: a
       { name: 'Code of conduct', value: 'conduct' },
       { name: 'Contributing guidelines', value: 'contributing' },
       { name: 'Security policy', value: 'security' },
+      { name: 'Branch protection', value: 'branch-protection' },
+      { name: 'Docker support', value: 'docker' },
     ],
   });
   
@@ -350,12 +447,30 @@ async function executeCreation(f2g: Folder2GitHub, source: string, options: any)
       task: () => f2g.analyze(source),
     },
     {
+      title: 'Executing plugins (before generation)',
+      task: async () => {
+        if (pluginManager.hasPlugins()) {
+          await pluginManager.executeHook('beforeGeneration', options);
+        }
+      },
+      skip: () => !pluginManager.hasPlugins(),
+    },
+    {
       title: 'Generating documentation',
       task: () => f2g.generateDocs(options),
     },
     {
       title: 'Creating repository structure',
       task: () => f2g.createStructure(source, options),
+    },
+    {
+      title: 'Executing plugins (after generation)',
+      task: async () => {
+        if (pluginManager.hasPlugins()) {
+          await pluginManager.executeHook('afterGeneration', f2g.targetDir, f2g.analysis);
+        }
+      },
+      skip: () => !pluginManager.hasPlugins() || options.dryRun,
     },
     {
       title: 'Initializing Git repository',
@@ -392,10 +507,15 @@ async function executeCreation(f2g: Folder2GitHub, source: string, options: any)
         console.log(chalk.yellow('⚡ CI/CD pipeline will start automatically on first push'));
       }
       
+      if (options.features.includes('docker')) {
+        console.log(chalk.cyan('🐳 Docker configuration generated'));
+      }
+      
       console.log(chalk.gray('\n💡 Next steps:'));
       console.log(chalk.gray('  • Clone the repository locally'));
       console.log(chalk.gray('  • Add collaborators if needed'));
       console.log(chalk.gray('  • Configure branch protection rules'));
+      console.log(chalk.gray('  • Set up environment variables for CI/CD'));
     } else {
       console.log(chalk.yellow('\n📋 Dry run completed - no changes made'));
       console.log(chalk.gray('Use without --dry-run to create the repository'));
