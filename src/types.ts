@@ -73,6 +73,9 @@ export const RepositoryOptionsSchema = z.object({
   allowRebaseMerge: z.boolean().default(true),
   deleteBranchOnMerge: z.boolean().default(true),
   topics: z.array(z.string()).default([]),
+  features: z.array(z.string()).default([]),
+  dryRun: z.boolean().default(false),
+  verify: z.boolean().default(true),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -108,4 +111,32 @@ export interface Plugin {
     beforeUpload?: (targetPath: string) => Promise<void>;
     afterUpload?: (repositoryUrl: string) => Promise<void>;
   };
+}
+
+export class F2GError extends Error {
+  constructor(message: string, public code?: string, public details?: any) {
+    super(message);
+    this.name = 'F2GError';
+  }
+}
+
+export class ValidationError extends F2GError {
+  constructor(message: string, public field?: string) {
+    super(message, 'VALIDATION_ERROR');
+    this.name = 'ValidationError';
+  }
+}
+
+export class GitHubError extends F2GError {
+  constructor(message: string, public statusCode?: number) {
+    super(message, 'GITHUB_ERROR');
+    this.name = 'GitHubError';
+  }
+}
+
+export class AnalysisError extends F2GError {
+  constructor(message: string, public sourcePath?: string) {
+    super(message, 'ANALYSIS_ERROR');
+    this.name = 'AnalysisError';
+  }
 }
