@@ -9,7 +9,16 @@ import { loadConfig, saveConfig } from './config.js';
 import { ProjectAnalyzer } from './analyzer.js';
 import { logger } from './utils/logger.js';
 import { perf } from './utils/performance.js';
-import { validateSourcePath, validateRepositoryName, validateDescription, sanitizeRepositoryName, ValidationError } from './utils/validation.js';
+import { ErrorHandler } from './utils/error-handler.js';
+import { SystemInfoCollector } from './utils/system-info.js';
+import { ConfigValidator } from './utils/config-validator.js';
+import { 
+  validateSourcePath, 
+  validateRepositoryName, 
+  validateDescription, 
+  sanitizeRepositoryName, 
+  ValidationError 
+} from './utils/validation.js';
 import { pluginManager } from './plugins/plugin-manager.js';
 
 const program = new Command();
@@ -20,10 +29,25 @@ program
   .version('2.0.0')
   .option('-v, --verbose', 'Enable verbose output')
   .option('--performance', 'Show performance metrics')
+  .option('--system-info', 'Show system information')
   .hook('preAction', (thisCommand) => {
     const options = thisCommand.opts();
+    
     if (options.verbose) {
       logger.setVerbose(true);
+    }
+    
+    if (options.systemInfo) {
+      SystemInfoCollector.printSystemInfo();
+      process.exit(0);
+    }
+    
+    // Check system compatibility
+    const compatibility = SystemInfoCollector.checkCompatibility();
+    if (!compatibility.compatible) {
+      logger.error('System compatibility issues detected:');
+      compatibility.issues.forEach(issue => logger.error(`  • ${issue}`));
+      process.exit(1);
     }
   });
 
@@ -40,45 +64,41 @@ program
   .option('--auto-name', 'Auto-generate repository name from folder')
   .option('--template <template>', 'Use custom template')
   .option('--plugins <plugins...>', 'Load additional plugins')
+  .option('--force', 'Force creation even if repository exists')
   .action(async (source, options) => {
-    perf.start('total-execution');
-    
-    try {
-      // Load plugins if specified
-      if (options.plugins) {
-        await pluginManager.loadPlugins(options.plugins);
-      }
+    await ErrorHandler.withErrorHandling(async () => {
+      perf.start('total-execution');
       
-      // Validate source path first
-      await validateSourcePath(source);
-      
-      const config = loadConfig();
-      const f2g = new Folder2GitHub(config);
-      
-      if (options.interactive) {
-        await runInteractiveMode(f2g, source, options);
-      } else {
-        await runDirectMode(f2g, source, options);
-      }
-    } catch (error) {
-      if (error instanceof ValidationError) {
-        logger.error(`Validation Error: ${error.message}`);
-      } else {
-        logger.error(`Error: ${error.message}`);
-      }
-      process.exit(1);
-    } finally {
-      const totalTime = perf.end('total-execution');
-      
-      if (program.opts().performance) {
-        console.log(chalk.blue('\n📊 Performance Metrics:'));
-        const metrics = perf.getMetrics();
-        for (const [label, data] of Object.entries(metrics)) {
-          console.log(chalk.gray(`  ${label}: ${data.avg.toFixed(2)}ms (${data.count} calls)`));
+      try {
+        // Load plugins if specified
+        if (options.plugins) {
+          await pluginManager.loadPlugins(options.plugins);
         }
-        console.log(chalk.green(`\n⚡ Total execution time: ${totalTime.toFixed(2)}ms`));
+        
+        // Validate source path first
+        await validateSourcePath(source);
+        
+        const config = loadConfig();
+        const f2g = new Folder2GitHub(config);
+        
+        if (options.interactive) {
+          await runInteractiveMode(f2g, source, options);
+        } else {
+          await runDirectMode(f2g, source, options);
+        }
+      } finally {
+        const totalTime = perf.end('total-execution');
+        
+        if (program.opts().performance) {
+          console.log(chalk.blue('\n📊 Performance Metrics:'));
+          const metrics = perf.getMetrics();
+          for (const [label, data] of Object.entries(metrics)) {
+            console.log(chalk.gray(`  ${label}: ${data.avg.toFixed(2)}ms (${data.count} calls)`));
+          }
+          console.log(chalk.green(`\n⚡ Total execution time: ${totalTime.toFixed(2)}ms`));
+        }
       }
-    }
+    }, { operation: 'Repository creation' });
   });
 
 program
@@ -88,15 +108,24 @@ program
   .option('--json', 'Output as JSON')
   .option('--cache', 'Use cached analysis if available')
   .option('--detailed', 'Show detailed analysis')
+  .option('--export <file>', 'Export analysis to file')
   .action(async (source, options) => {
-    try {
+    await ErrorHandler.withErrorHandling(async () => {
       await validateSourcePath(source);
       
       const analyzer = new ProjectAnalyzer();
       const analysis = await analyzer.analyze(source);
       
       if (options.json) {
-        console.log(JSON.stringify(analysis, null, 2));
+        const output = JSON.stringify(analysis, null, 2);
+        
+        if (options.export) {
+          const { writeFile } = await import('fs/promises');
+          await writeFile(options.export, output);
+          logger.success(`Analysis exported to ${options.export}`);
+        } else {
+          console.log(output);
+        }
         return;
       }
       
@@ -152,14 +181,12 @@ program
         }
       }
       
-    } catch (error) {
-      if (error instanceof ValidationError) {
-        logger.error(`Validation Error: ${error.message}`);
-      } else {
-        logger.error(`Error: ${error.message}`);
+      if (options.export && !options.json) {
+        const { writeFile } = await import('fs/promises');
+        await writeFile(options.export, JSON.stringify(analysis, null, 2));
+        logger.success(`Analysis exported to ${options.export}`);
       }
-      process.exit(1);
-    }
+    }, { operation: 'Project analysis' });
   });
 
 program
@@ -167,17 +194,44 @@ program
   .description('Configure f2g settings')
   .option('--reset', 'Reset configuration to defaults')
   .option('--show', 'Show current configuration')
+  .option('--validate', 'Validate current configuration')
+  .option('--export <file>', 'Export configuration to file')
   .action(async (options) => {
-    try {
+    await ErrorHandler.withErrorHandling(async () => {
       if (options.show) {
         const config = loadConfig();
+        const sanitized = ConfigValidator.sanitizeConfig(config);
+        
         console.log(chalk.blue('\n⚙️ Current Configuration:\n'));
-        console.log(chalk.green('GitHub Username:'), config.github.username || 'Not set');
-        console.log(chalk.green('GitHub Token:'), config.github.token ? '***' : 'Not set');
+        console.log(chalk.green('GitHub Username:'), sanitized.github.username || 'Not set');
+        console.log(chalk.green('GitHub Token:'), sanitized.github.token || 'Not set');
         console.log(chalk.green('Default License:'), config.defaults.license);
         console.log(chalk.green('Default Private:'), config.defaults.private);
         console.log(chalk.green('Auto Verify:'), config.defaults.autoVerify);
         console.log(chalk.green('Plugins:'), config.plugins.join(', ') || 'None');
+        
+        if (options.export) {
+          const { writeFile } = await import('fs/promises');
+          await writeFile(options.export, JSON.stringify(sanitized, null, 2));
+          logger.success(`Configuration exported to ${options.export}`);
+        }
+        return;
+      }
+      
+      if (options.validate) {
+        const config = loadConfig();
+        try {
+          ConfigValidator.validate(config);
+          logger.success('Configuration is valid');
+          
+          // Additional validation
+          if (config.github.token && !ConfigValidator.validateGitHubToken(config.github.token)) {
+            logger.warning('GitHub token format appears invalid');
+          }
+        } catch (error) {
+          logger.error('Configuration validation failed');
+          throw error;
+        }
         return;
       }
       
@@ -188,17 +242,14 @@ program
         });
         
         if (confirmReset) {
-          // Reset to defaults by saving empty config
-          saveConfig({
-            github: { username: '', token: undefined },
-            defaults: { license: 'MIT', private: false, autoVerify: true },
-            plugins: [],
-          });
+          const defaultConfig = ConfigValidator.getDefaultConfig();
+          saveConfig(defaultConfig);
           logger.success('Configuration reset to defaults');
           return;
         }
       }
       
+      // Interactive configuration
       const config = loadConfig();
       
       const username = await input({
@@ -234,28 +285,25 @@ program
         default: config.defaults.license,
       });
       
-      const newConfig = {
-        ...config,
+      const newConfig = ConfigValidator.mergeWithDefaults({
         github: { username: username.trim(), token: token.trim() || undefined },
         defaults: { 
-          ...config.defaults, 
           private: defaultPrivate, 
           autoVerify,
           license,
         },
-      };
+        plugins: config.plugins,
+      });
       
+      // Validate before saving
+      ConfigValidator.validate(newConfig);
       saveConfig(newConfig);
       logger.success('Configuration saved successfully!');
       
       if (!token.trim()) {
         logger.warning('Consider setting a GitHub token for better API rate limits and private repository support');
       }
-      
-    } catch (error) {
-      logger.error(`Configuration error: ${error.message}`);
-      process.exit(1);
-    }
+    }, { operation: 'Configuration management' });
   });
 
 program
@@ -263,20 +311,31 @@ program
   .description('Validate a repository name')
   .argument('<name>', 'Repository name to validate')
   .action(async (name) => {
-    try {
+    await ErrorHandler.withErrorHandling(async () => {
       validateRepositoryName(name);
       logger.success(`Repository name "${name}" is valid`);
-    } catch (error) {
-      if (error instanceof ValidationError) {
-        logger.error(`Invalid repository name: ${error.message}`);
-        const sanitized = sanitizeRepositoryName(name);
-        if (sanitized !== name) {
-          logger.info(`Suggested name: "${sanitized}"`);
-        }
-      } else {
-        logger.error(`Error: ${error.message}`);
-      }
-      process.exit(1);
+    }, { 
+      operation: 'Repository name validation',
+      suggestions: [
+        'Use only letters, numbers, dots, hyphens, and underscores',
+        'Try the sanitize command to get a valid name',
+      ],
+    });
+  });
+
+program
+  .command('sanitize')
+  .description('Sanitize a repository name')
+  .argument('<name>', 'Repository name to sanitize')
+  .action(async (name) => {
+    const sanitized = sanitizeRepositoryName(name);
+    console.log(chalk.green('Original:'), name);
+    console.log(chalk.blue('Sanitized:'), sanitized);
+    
+    if (sanitized !== name) {
+      logger.info('Name was modified to comply with GitHub requirements');
+    } else {
+      logger.success('Name is already valid');
     }
   });
 
@@ -284,6 +343,7 @@ program
   .command('plugins')
   .description('Manage plugins')
   .option('--list', 'List available plugins')
+  .option('--installed', 'List installed plugins')
   .option('--install <plugin>', 'Install a plugin')
   .action(async (options) => {
     if (options.list) {
@@ -292,6 +352,21 @@ program
       console.log(chalk.green('• @f2g/plugin-security'), '- Security scanning and policies');
       console.log(chalk.green('• @f2g/plugin-badges'), '- README badge generation');
       console.log(chalk.green('• @f2g/plugin-changelog'), '- Automated changelog generation');
+      console.log(chalk.green('• @f2g/plugin-testing'), '- Enhanced testing frameworks');
+      console.log(chalk.green('• @f2g/plugin-docs'), '- Advanced documentation generation');
+      return;
+    }
+    
+    if (options.installed) {
+      const plugins = pluginManager.getLoadedPlugins();
+      if (plugins.length === 0) {
+        logger.info('No plugins currently loaded');
+      } else {
+        console.log(chalk.blue('\n🔌 Loaded Plugins:\n'));
+        plugins.forEach(plugin => {
+          console.log(chalk.green(`• ${plugin.name}@${plugin.version}`));
+        });
+      }
       return;
     }
     
@@ -299,6 +374,60 @@ program
       logger.info(`Installing plugin: ${options.install}`);
       // Plugin installation logic would go here
       logger.success(`Plugin ${options.install} installed successfully`);
+    }
+  });
+
+program
+  .command('doctor')
+  .description('Diagnose system and configuration issues')
+  .action(async () => {
+    console.log(chalk.blue('\n🏥 System Diagnosis\n'));
+    
+    // System compatibility
+    const compatibility = SystemInfoCollector.checkCompatibility();
+    if (compatibility.compatible) {
+      logger.success('System compatibility: OK');
+    } else {
+      logger.error('System compatibility issues:');
+      compatibility.issues.forEach(issue => logger.error(`  • ${issue}`));
+    }
+    
+    // Configuration validation
+    try {
+      const config = loadConfig();
+      ConfigValidator.validate(config);
+      logger.success('Configuration: Valid');
+      
+      // GitHub token validation
+      if (config.github.token) {
+        if (ConfigValidator.validateGitHubToken(config.github.token)) {
+          logger.success('GitHub token: Format valid');
+        } else {
+          logger.warning('GitHub token: Format appears invalid');
+        }
+      } else {
+        logger.warning('GitHub token: Not configured');
+      }
+    } catch (error) {
+      logger.error('Configuration: Invalid');
+    }
+    
+    // Git availability
+    try {
+      const { execSync } = await import('child_process');
+      execSync('git --version', { stdio: 'ignore' });
+      logger.success('Git: Available');
+    } catch {
+      logger.error('Git: Not available');
+    }
+    
+    // Network connectivity (basic check)
+    try {
+      const { default: fetch } = await import('node-fetch');
+      await fetch('https://api.github.com', { method: 'HEAD' });
+      logger.success('GitHub API: Accessible');
+    } catch {
+      logger.error('GitHub API: Not accessible');
     }
   });
 
@@ -404,6 +533,7 @@ async function runInteractiveMode(f2g: Folder2GitHub, source: string, options: a
     topics: topics.split(',').map(t => t.trim()).filter(t => t.length > 0),
     dryRun: options.dryRun || false,
     verify: !options.noVerify,
+    force: options.force || false,
   };
   
   await executeCreation(f2g, source, repoOptions);
@@ -435,6 +565,7 @@ async function runDirectMode(f2g: Folder2GitHub, source: string, options: any) {
     topics: [],
     dryRun: options.dryRun || false,
     verify: !options.noVerify && f2g.config.defaults.autoVerify,
+    force: options.force || false,
   };
   
   await executeCreation(f2g, source, repoOptions);
@@ -521,17 +652,7 @@ async function executeCreation(f2g: Folder2GitHub, source: string, options: any)
       console.log(chalk.gray('Use without --dry-run to create the repository'));
     }
   } catch (error) {
-    logger.error(`Failed to create repository: ${error.message}`);
-    
-    if (error.message.includes('already exists')) {
-      logger.info('Try using a different repository name or check your GitHub account');
-    } else if (error.message.includes('rate limit')) {
-      logger.info('GitHub API rate limit exceeded. Try again later or use a GitHub token');
-    } else if (error.message.includes('authentication')) {
-      logger.info('GitHub authentication failed. Check your token in the configuration');
-    }
-    
-    process.exit(1);
+    throw error; // Let ErrorHandler handle it
   }
 }
 

@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "target": "ES2021",
+    "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Node",
     "allowSyntheticDefaultImports": true,
@@ -10,16 +10,22 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "declaration": true,
+    "declarationMap": true,
     "outDir": "dist",
     "rootDir": "src",
     "resolveJsonModule": true,
     "verbatimModuleSyntax": false,
     "allowImportingTsExtensions": false,
-    "noEmit": false
+    "noEmit": false,
+    "isolatedModules": true,
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM"],
+    "types": ["node", "vitest/globals"]
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "**/*.test.ts"],
   "ts-node": {
-    "esm": true
+    "esm": true,
+    "experimentalSpecifierResolution": "node"
   }
 }
