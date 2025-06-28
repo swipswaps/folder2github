@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 import { Command } from 'commander';
 import { select, input, confirm, checkbox } from '@inquirer/prompts';
 import chalk from 'chalk';
