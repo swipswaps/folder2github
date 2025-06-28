@@ -4,7 +4,7 @@
   "description": "Next-generation automated repository creation tool",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/cli.ts",
+    "dev": "tsx src/cli.ts",
     "build": "tsup src/cli.ts --format esm --target node18",
     "start": "node dist/cli.js",
     "test": "vitest",
