@@ -1,0 +1,40 @@
+{
+  "name": "folder2github-enhanced",
+  "version": "2.0.0",
+  "description": "Next-generation automated repository creation tool",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/cli.ts",
+    "build": "tsup src/cli.ts --format esm --target node18",
+    "start": "node dist/cli.js",
+    "test": "vitest",
+    "lint": "eslint src --ext .ts",
+    "format": "prettier --write src"
+  },
+  "bin": {
+    "f2g": "./dist/cli.js"
+  },
+  "dependencies": {
+    "@octokit/rest": "^20.0.2",
+    "@inquirer/prompts": "^3.3.0",
+    "chalk": "^5.3.0",
+    "commander": "^11.1.0",
+    "cosmiconfig": "^8.3.6",
+    "execa": "^8.0.1",
+    "fast-glob": "^3.3.2",
+    "listr2": "^7.0.2",
+    "ora": "^7.0.1",
+    "p-limit": "^4.0.0",
+    "playwright": "^1.40.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "eslint": "^8.55.0",
+    "prettier": "^3.1.0",
+    "tsup": "^8.0.1",
+    "tsx": "^4.6.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0"
+  }
+}
