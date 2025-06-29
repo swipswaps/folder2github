@@ -1,0 +1,75 @@
+{
+  "name": "folder2github-enhanced",
+  "version": "2.0.0",
+  "description": "Next-generation automated repository creation tool",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/cli.js",
+      "types": "./dist/cli.d.ts"
+    }
+  },
+  "bin": {
+    "f2g": "./dist/cli.js"
+  },
+  "scripts": {
+    "dev": "tsx --loader tsx/esm src/cli.ts",
+    "build": "tsup src/cli.ts --format esm --target node18 --clean --dts",
+    "start": "node dist/cli.js",
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "test:coverage": "vitest --coverage",
+    "lint": "eslint src --ext .ts --fix",
+    "format": "prettier --write src",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@octokit/rest": "^20.0.2",
+    "@inquirer/prompts": "^3.3.0",
+    "chalk": "^5.3.0",
+    "commander": "^11.1.0",
+    "cosmiconfig": "^8.3.6",
+    "execa": "^8.0.1",
+    "fast-glob": "^3.3.2",
+    "listr2": "^7.0.2",
+    "ora": "^7.0.1",
+    "p-limit": "^4.0.0",
+    "playwright": "^1.40.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "eslint": "^8.55.0",
+    "prettier": "^3.1.0",
+    "tsup": "^8.0.1",
+    "tsx": "^4.6.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0",
+    "@vitest/coverage-v8": "^1.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "github",
+    "automation",
+    "repository",
+    "cli",
+    "typescript",
+    "git"
+  ],
+  "author": "swipswaps",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/swipswaps/folder2github-enhanced.git"
+  },
+  "bugs": {
+    "url": "https://github.com/swipswaps/folder2github-enhanced/issues"
+  },
+  "homepage": "https://github.com/swipswaps/folder2github-enhanced#readme"
+}
