@@ -1,0 +1,46 @@
+{
+  "timestamp": "2025-06-27T20:47:19.060131",
+  "repository_url": "https://github.com/swipswaps/folder2github",
+  "tests": {
+    "repository_exists": {
+      "status": "PASS",
+      "title": ""
+    },
+    "essential_files": {
+      "status": "PASS",
+      "files": {
+        "README.md": "FOUND",
+        "LICENSE": "FOUND"
+      }
+    },
+    "project_files": {
+      "status": "PASS",
+      "count": 5,
+      "files": [
+        "create_license.sh",
+        "create_license.sh",
+        "folder2github.sh",
+        "folder2github.sh",
+        "generate_ci.py"
+      ]
+    },
+    "description": {
+      "status": "PASS",
+      "text": ""
+    },
+    "commits": {
+      "status": "PASS",
+      "text": "1 Commit"
+    },
+    "ci_integration": {
+      "status": "PASS",
+      "found": true
+    },
+    "content_verification": {
+      "status": "PASS",
+      "contains_repo_name": true
+    }
+  },
+  "overall_status": "SUCCESS",
+  "screenshot": "folder2github_verification_1751071641.png"
+}
